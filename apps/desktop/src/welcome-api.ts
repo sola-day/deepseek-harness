@@ -6,6 +6,7 @@ import type { DesktopLocale } from './locale.ts'
 
 /** Private native welcome channels, installed only while its window exists. */
 export const WELCOME_IPC = {
+  forest: 'dsh-welcome:forest',
   saveApiKey: 'dsh-welcome:save-api-key',
   analytics: 'dsh-welcome:analytics',
   analyticsEnabled: 'dsh-welcome:analytics-enabled',
@@ -33,6 +34,11 @@ export interface WelcomeOperations {
   analyticsEnabled(): Promise<boolean>
   /** @returns the pending notification, clearing it before another renderer can receive it. */
   takeNotice(): Promise<WelcomeNotice | undefined>
+  /**
+   * Sign in through the local forest gateway and store its API key.
+   * @returns false when the browser login or the key write does not finish.
+   */
+  signInWithForest(): Promise<boolean>
   /** @returns account state after starting a login attempt. */
   startSignIn(): Promise<AccountView>
   /** @param id - attempt to cancel. @returns the settled state. */

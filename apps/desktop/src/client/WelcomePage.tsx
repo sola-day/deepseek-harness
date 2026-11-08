@@ -29,6 +29,8 @@ export function Welcome({ api }: { api: WelcomeApi }) {
   const [draft, setDraft] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [forestBusy, setForestBusy] = useState(false)
+  const [forestError, setForestError] = useState(false)
   const busyRef = useRef(false)
   const mounted = useRef(true)
   const revision = useRef(0)
@@ -125,6 +127,20 @@ export function Welcome({ api }: { api: WelcomeApi }) {
       if (mounted.current) setBusy(false)
     }
   }
+  async function forest() {
+    if (forestBusy || busyRef.current) return
+    setForestBusy(true)
+    setForestError(false)
+    void api.analytics?.('auth_page_click', { button_name: 'sign_in' })
+    try {
+      const ok = await api.signInWithForest()
+      if (mounted.current && !ok) setForestError(true)
+    } catch {
+      if (mounted.current) setForestError(true)
+    } finally {
+      if (mounted.current) setForestBusy(false)
+    }
+  }
   async function start() {
     navigate('account')
     setStarting(true)
@@ -179,6 +195,7 @@ export function Welcome({ api }: { api: WelcomeApi }) {
       <div id="tagline" className="tagline" hidden={page !== 'entry'}>
         <h1 id="welcome-heading"><span>{m.welcomeTaglineBefore}</span><em>{m.welcomeTaglineBrand}</em><span>{m.welcomeTaglineAfter}</span></h1>
         <p id="welcome-description">{m.welcomeDescription}</p>
+        {forestError ? <p id="forest-error" role="alert">{m.welcomeForestFailed}</p> : null}
       </div>
       <form id="key-form" className="key-form" hidden={page !== 'key'} noValidate onSubmit={(event) => { void saveKey(event) }} aria-busy={busy}>
         <header className="key-heading"><h1 id="key-title">{m.welcomeKeyTitle}</h1><p id="key-description">{m.welcomeKeyDescription}</p></header>
@@ -209,8 +226,8 @@ export function Welcome({ api }: { api: WelcomeApi }) {
           onClick={() => { void cancel() }}>{m.welcomeAuthCancel}</button>
       </div>
       <div id="entry-actions" className="actions" hidden={page !== 'entry'}>
-        <button id="sign-in" className="primary" type="button" onClick={() => { void api.analytics?.('auth_page_click', { button_name: 'sign_in' }); void start() }}>{m.welcomeSignIn}</button>
-        <button ref={keyButton} id="api-key" className="secondary" type="button" onClick={() => { void api.analytics?.('auth_page_click', { button_name: 'api-key' }); navigate('key') }}>{m.welcomeApiKey}</button>
+        <button id="sign-in" className="primary" type="button" disabled={forestBusy} onClick={() => { void forest() }}>{forestBusy ? m.welcomeForestBusy : m.welcomeSignIn}</button>
+        <button ref={keyButton} id="api-key" className="secondary" type="button" disabled={forestBusy} onClick={() => { void api.analytics?.('auth_page_click', { button_name: 'api-key' }); navigate('key') }}>{m.welcomeApiKey}</button>
       </div>
       <div id="key-actions" className="actions" hidden={page !== 'key'}>
         <button id="save-key" className="primary" type="submit" form="key-form" disabled={busy || draft.trim() === ''}>{m.welcomeKeySave}</button>

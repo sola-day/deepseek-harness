@@ -19,6 +19,7 @@ function mount(language = 'zh-CN', takeNotice = vi.fn<() => Promise<WelcomeNotic
     analytics: vi.fn(async (_event: string, _attributes: object) => {}),
     analyticsEnabled: async () => true,
     onAccountState: vi.fn((_listener: (state: AccountView) => void) => stopAccount),
+    signInWithForest: vi.fn(async () => true),
     startSignIn: vi.fn(async (): Promise<AccountView> => ({ links: { usageUrl: 'http://localhost/usage', topUpUrl: 'http://localhost/top_up' }, status: 'signed-out', attempt: null })),
     cancelSignIn: vi.fn(async (): Promise<AccountView> => ({ links: { usageUrl: 'http://localhost/usage', topUpUrl: 'http://localhost/top_up' }, status: 'signed-out', attempt: null })),
     copySignInLink: vi.fn(async () => undefined),
@@ -192,18 +193,18 @@ it.each(['zh-CN', 'en'])('renders %s browser fallback and copies only the active
   expect(view.document.querySelector('main')!.classList.contains('waiting-page')).toBe(false)
 })
 
-it('keeps a newer account notification when the start response arrives late', async () => {
+it('keeps the entry page while Forest sign-in is in progress and shows a failure there', async () => {
   const view = mount()
-  const started = Promise.withResolvers<AccountView>()
-  view.api.startSignIn.mockReturnValueOnce(started.promise)
+  const started = Promise.withResolvers<boolean>()
+  view.api.signInWithForest.mockReturnValueOnce(started.promise)
   fireEvent.click(view.button('#sign-in'))
-  expect(view.button('#auth-cancel').disabled).toBe(true)
-  const state: AccountView = { status: 'signed-out', links: { usageUrl: '', topUpUrl: '' },
-    attempt: { id: 'attempt' as NonNullable<AccountView['attempt']>['id'], phase: 'expired' } }
-  act(() => { view.api.onAccountState.mock.calls[0]![0](state) })
-  await act(async () => { started.resolve({ ...state, attempt: { ...state.attempt!, phase: 'waiting-browser' } }); await started.promise })
-  expect(view.document.querySelector('#auth-status')!.textContent).toBe(view.api.messages.welcomeAuthExpired)
-  expect(view.button('#auth-retry').hidden).toBe(false)
+  expect(view.button('#sign-in').disabled).toBe(true)
+  expect(view.button('#sign-in').textContent).toBe(view.api.messages.welcomeForestBusy)
+  expect(view.api.startSignIn).not.toHaveBeenCalled()
+  expect(view.document.querySelector<HTMLElement>('#auth-page')!.hidden).toBe(true)
+  await act(async () => { started.resolve(false); await started.promise })
+  expect(view.document.querySelector('#forest-error')!.textContent).toBe(view.api.messages.welcomeForestFailed)
+  expect(view.button('#sign-in').disabled).toBe(false)
 })
 
 it('does not restore a copied-link status after leaving the waiting phase', async () => {
@@ -335,9 +336,10 @@ it('reports each return to the welcome entry once, including account cancellatio
   fireEvent.click(view.button('#api-key'))
   fireEvent.click(view.button('#back-to-login'))
   expect(view.api.analytics.mock.calls.map(([action]) => action)).toEqual(['auth_page_click', 'auth_page_view'])
-  const pending = Promise.withResolvers<AccountView>()
-  view.api.startSignIn.mockReturnValueOnce(pending.promise)
+  const pending = Promise.withResolvers<boolean>()
+  view.api.signInWithForest.mockReturnValueOnce(pending.promise)
   fireEvent.click(view.button('#sign-in'))
-  await act(async () => { pending.resolve({ links: { usageUrl: 'http://localhost/usage', topUpUrl: 'http://localhost/top_up' }, status: 'signed-out', attempt: null }) })
-  expect(view.api.analytics.mock.calls.map(([action]) => action)).toEqual(['auth_page_click', 'auth_page_view', 'auth_page_click', 'auth_page_view'])
+  await act(async () => { pending.resolve(true); await pending.promise })
+  expect(view.api.startSignIn).not.toHaveBeenCalled()
+  expect(view.api.analytics.mock.calls.map(([action]) => action)).toEqual(['auth_page_click', 'auth_page_view', 'auth_page_click'])
 })

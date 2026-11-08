@@ -1,5 +1,6 @@
 /** Electron shell: desktop project ownership, custom protocol, windows, and lifecycle. */
 
+import { completeForestSignIn, forestHome, readForestBaseURL, writeForestCredentials } from './forest-login.ts'
 import { installFileActions } from './file-actions.ts'
 import { configurationFailure, channelSaveFailure, configurationMessage } from './update-configuration.ts'
 import type { DesktopChannelState, DesktopChannelChangeResult } from '@deepseek-ai/dsh-client-ui-settings-general/types'
@@ -393,7 +394,14 @@ async function main(): Promise<void> {
     return result.environment
   })
   let hostEnvironment: NodeJS.ProcessEnv = process.env
-  const prepareHostEnvironment = async (): Promise<void> => { hostEnvironment = await loginShell }
+  const prepareHostEnvironment = async (): Promise<void> => {
+    const environment = { ...(await loginShell) }
+    const baseURL = await readForestBaseURL(forestHome(environment)).catch((error: unknown) => {
+      console.error(error)
+      return undefined
+    })
+    hostEnvironment = baseURL === undefined ? environment : { ...environment, DEEPSEEK_BASE_URL: baseURL }
+  }
   let quitting = false
   let startup: Promise<void> | undefined
   let workspaceRecovery: Promise<void> | undefined
@@ -1173,6 +1181,41 @@ async function main(): Promise<void> {
       { role: 'hideOthers', label: currentDesktopLocale().messages.hideOtherApplications },
       { role: 'unhide', label: currentDesktopLocale().messages.showAllApplications }, { type: 'separator' }]
     : []
+  const finishForestSignIn = async (): Promise<void> => {
+    const baseURL = (process.env.FOREST_BASE_URL ?? 'http://127.0.0.1:8787').replace(/\/+$/u, '')
+    const result = await completeForestSignIn({ baseURL, open: url => shell.openExternal(url) })
+    await writeForestCredentials(forestHome(), baseURL, result.apiKey)
+    if (welcomeBackend !== undefined) await welcomeBackend.save(result.apiKey)
+  }
+  const reopenAfterForest = (): void => {
+    if (quitting) return
+    app.relaunch()
+    quitWithoutConfirmation()
+  }
+  const signInWithForest = (): void => {
+    void (async () => {
+      const zh = currentDesktopLocale().id === 'zh-CN'
+      try {
+        await finishForestSignIn()
+        const choice = await dialog.showMessageBox({
+          type: 'info',
+          message: zh
+            ? 'Forest 登录成功。重新打开后，模型请求会走这个网关。'
+            : 'Forest sign-in succeeded. Reopen the app so model requests use this gateway.',
+          buttons: zh ? ['重新打开', '稍后'] : ['Reopen', 'Later'],
+        })
+        if (choice.response === 0) reopenAfterForest()
+      } catch (error) {
+        console.error(error)
+        await dialog.showMessageBox({
+          type: 'error',
+          message: zh
+            ? 'Forest 登录没有完成。请确认 forest 已在本机运行。'
+            : 'Forest sign-in did not finish. Check that forest is running.',
+        })
+      }
+    })()
+  }
   const applicationItems = (): MenuItemConstructorOptions[] => [
     // Windows has no system About panel; Electron's fallback is a plain
     // message box, so the shell shows its own dimmed dialog instead.
@@ -1184,6 +1227,7 @@ async function main(): Promise<void> {
     { label: currentDesktopLocale().messages.checkUpdatesMenu, click: () => { void openUpdatePrompt(true) } },
     ...process.platform === 'darwin' || process.platform === 'win32'
       ? [{ label: currentDesktopLocale().messages.cliCommandMenu, click: () => { void commandManager.show() } }] : [],
+    { label: currentDesktopLocale().messages.forestMenu, click: () => { signInWithForest() } },
     { type: 'separator' },
     ...development ? [
       { label: currentDesktopLocale().messages.reloadPageMenu, role: 'reload' as const },
@@ -1379,6 +1423,16 @@ async function main(): Promise<void> {
           const notice = pendingWelcomeNotice
           pendingWelcomeNotice = undefined
           return Promise.resolve(notice)
+        },
+        signInWithForest: async () => {
+          try {
+            await finishForestSignIn()
+            reopenAfterForest()
+            return true
+          } catch (error) {
+            console.error(error)
+            return false
+          }
         },
         startSignIn: async () => {
           if (welcomeBackend === undefined) throw new Error('desktop welcome: backend unavailable')

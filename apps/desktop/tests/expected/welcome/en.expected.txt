@@ -2,5 +2,5 @@ DeepSeek Harness
 DeepSeek Harness
 Welcome to DeepSeek Harness
 Build potential. Explore intelligence.
-Sign in
+Sign in with Forest
 Add API Key
